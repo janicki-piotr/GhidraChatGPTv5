@@ -16,13 +16,11 @@
 
 package ghidrachatgpt;
 
-import com.theokanning.openai.completion.chat.ChatCompletionRequest;
-import com.theokanning.openai.completion.chat.ChatMessage;
-import com.theokanning.openai.completion.chat.ChatMessageRole;
-import com.theokanning.openai.service.OpenAiService;
-import docking.Tool;
+
+import com.openai.client.OpenAIClient;
+import com.openai.client.okhttp.OpenAIOkHttpClient;
+import com.openai.models.chat.completions.ChatCompletionCreateParams;
 import ghidra.app.CorePluginPackage;
-import ghidra.app.ExamplesPluginPackage;
 import ghidra.app.decompiler.flatapi.FlatDecompilerAPI;
 import ghidra.app.plugin.PluginCategoryNames;
 import ghidra.app.plugin.ProgramPlugin;
@@ -31,16 +29,12 @@ import ghidra.app.services.ConsoleService;
 import ghidra.framework.plugintool.*;
 import ghidra.framework.plugintool.util.PluginStatus;
 import ghidra.program.flatapi.FlatProgramAPI;
-import ghidra.program.model.address.Address;
 import ghidra.program.model.listing.Function;
 import ghidra.program.model.listing.Program;
 import ghidra.program.model.listing.Variable;
 import ghidra.program.model.symbol.SourceType;
 import ghidra.program.util.ProgramLocation;
 import ghidra.util.HelpLocation;
-import java.lang.Integer;
-import java.time.Duration;
-import java.util.List;
 import org.json.JSONObject;
 
 //@formatter:off
@@ -55,10 +49,9 @@ import org.json.JSONObject;
 public class GhidraChatGPTPlugin extends ProgramPlugin {
   ConsoleService cs;
   CodeViewerService cvs;
-  private GhidraChatGPTComponent uiComponent;
+  private final GhidraChatGPTComponent uiComponent;
   private String apiToken;
-  private String openAiModel = "gpt-3.5-turbo";
-  private int OPENAI_TIMEOUT = 120;
+  private String openAiModel = "gpt-5";
   private static final String GCG_IDENTIFY_STRING =
       "Describe the function with as much detail as possible and include a link to an open source version if there is one\n %s";
   private static final String GCG_VULNERABILITY_STRING =
@@ -102,13 +95,8 @@ public class GhidraChatGPTPlugin extends ProgramPlugin {
   }
 
   private static String censorToken(String token) {
-    StringBuilder censoredBuilder = new StringBuilder(token.length());
-    censoredBuilder.append(token.substring(0, 2));
-
-    for (int i = 2; i < token.length(); i++) {
-      censoredBuilder.append('*');
-    }
-    return censoredBuilder.toString();
+      return token.substring(0, 2) +
+            "*".repeat(Math.max(0, token.length() - 2));
   }
 
   public String getToken() { return apiToken; }
@@ -289,35 +277,25 @@ public class GhidraChatGPTPlugin extends ProgramPlugin {
   }
 
   private String sendOpenAIRequest(String prompt) {
-    StringBuilder response = new StringBuilder();
     if (!checkOpenAIToken())
       return null;
 
-    OpenAiService openAIService =
-        new OpenAiService(apiToken, Duration.ofSeconds(OPENAI_TIMEOUT));
-    if (openAIService == null) {
-      error("Faild to start the OpenAI service, try again!");
-      return null;
-    }
+    OpenAIClient client = OpenAIOkHttpClient.builder()
+            .apiKey(apiToken)
+            .checkJacksonVersionCompatibility(false)
+            .build();
 
-    ChatCompletionRequest chatCompletionRequest =
-        ChatCompletionRequest.builder()
-            .model(openAiModel)
-            .temperature(0.8)
-            .messages(List.of(
-                new ChatMessage(
-                    ChatMessageRole.SYSTEM.value(),
-                    "You are an assistant helping out with reverse engineering and vulnerability research"),
-                new ChatMessage(ChatMessageRole.USER.value(), prompt)))
+    ChatCompletionCreateParams params = ChatCompletionCreateParams.builder()
+            .addAssistantMessage("You are an assistant helping out with reverse engineering and vulnerability research")
+            .addUserMessage(prompt)
+            .model(GPTModel.getModelByName(openAiModel).get())
             .build();
 
     try {
       StringBuilder builder = new StringBuilder();
-      openAIService.createChatCompletion(chatCompletionRequest)
-          .getChoices()
-          .forEach(
-              choice -> { builder.append(choice.getMessage().getContent()); });
-
+      client.chat().completions().create(params)
+          .choices()
+          .forEach(choice -> builder.append(choice.message().content()));
       return builder.toString();
     } catch (Exception e) {
       error(String.format("Asking ChatGPT failed with the error %s", e));
