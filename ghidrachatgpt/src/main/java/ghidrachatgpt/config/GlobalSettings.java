@@ -6,6 +6,8 @@ public final class GlobalSettings {
     private static String instructions = """
             You are an assistant helping out with reverse engineering and vulnerability research.\s
             """;
+    private static boolean attachCCode = true;
+    private static boolean attachAsmCode = true;
 
     public static String getAccessToken() {
         return accessToken;
@@ -41,5 +43,21 @@ public final class GlobalSettings {
             GlobalSettings.instructions = instructions;
             return true;
         }
+    }
+
+    public static boolean isAttachCCode() {
+        return attachCCode;
+    }
+
+    public static void setAttachCCode(boolean attachCCode) {
+        GlobalSettings.attachCCode = attachCCode;
+    }
+
+    public static boolean isAttachAsmCode() {
+        return attachAsmCode;
+    }
+
+    public static void setAttachAsmCode(boolean attachAsmCode) {
+        GlobalSettings.attachAsmCode = attachAsmCode;
     }
 }

@@ -23,13 +23,13 @@ import ghidra.app.plugin.PluginCategoryNames;
 import ghidra.app.plugin.ProgramPlugin;
 import ghidra.app.services.CodeViewerService;
 import ghidra.app.services.ConsoleService;
+import ghidra.app.util.viewer.field.BrowserCodeUnitFormat;
 import ghidra.framework.plugintool.PluginInfo;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.framework.plugintool.util.PluginStatus;
 import ghidra.program.flatapi.FlatProgramAPI;
-import ghidra.program.model.listing.Function;
-import ghidra.program.model.listing.Program;
-import ghidra.program.model.listing.Variable;
+import ghidra.program.model.address.AddressSetView;
+import ghidra.program.model.listing.*;
 import ghidra.program.model.symbol.SourceType;
 import ghidra.program.util.ProgramLocation;
 import ghidra.util.HelpLocation;
@@ -57,7 +57,7 @@ public class GhidraChatGPTPlugin extends ProgramPlugin {
     private static final String GCG_VULNERABILITY_STRING =
             "Describe all vulnerabilities in this function with as much detail as possible\n %s";
     private static final String GCG_BEAUTIFY_STRING =
-            "Analyze the function and suggest function and variable names in a json format where the key is the previous name and the value is the suggested name\n %s";
+            "Analyze the decompiled C function and suggest function and variable names in a json format where the key is the previous name and the value is the suggested name\n %s";
 
     private static final Logger LOGGER = new Logger(GhidraChatGPTPlugin.class);
 
@@ -108,12 +108,11 @@ public class GhidraChatGPTPlugin extends ProgramPlugin {
         LOGGER.info(String.format("Identifying the current function: %s",
                 decResult.func.getName()));
         result = askChatGPT(
-                String.format(GCG_IDENTIFY_STRING, decResult.decompiledFunc), GlobalSettings.getInstructions());
+                String.format(GCG_IDENTIFY_STRING, decResult.getPromptElement()), GlobalSettings.getInstructions());
         if (result == null)
             return;
 
-        addComment(decResult.prog, decResult.func, result,
-                "[GhidraChatGPT] - Identify Function");
+        addComment(decResult.prog, decResult.func, result, "[GhidraChatGPT] - Identify Function");
     }
 
     public void findVulnerabilities() {
@@ -125,7 +124,7 @@ public class GhidraChatGPTPlugin extends ProgramPlugin {
         LOGGER.info(String.format("Finding vulnerabilities in the current function: %s",
                 decResult.func.getName()));
         result = askChatGPT(
-                String.format(GCG_VULNERABILITY_STRING, decResult.decompiledFunc), GlobalSettings.getInstructions());
+                String.format(GCG_VULNERABILITY_STRING, decResult.getPromptElement()), GlobalSettings.getInstructions());
         if (result == null)
             return;
 
@@ -136,13 +135,13 @@ public class GhidraChatGPTPlugin extends ProgramPlugin {
     public void beautifyFunction() {
         String result;
         DecompilerResults decResult = decompileCurrentFunc();
-        if (decResult == null)
+        if (decResult == null || decResult.decompiledFunc == null)
             return;
 
         LOGGER.info(String.format("Beautifying the function: %s",
                 decResult.func.getName()));
         result = askChatGPT(
-                String.format(GCG_BEAUTIFY_STRING, decResult.decompiledFunc), GlobalSettings.getInstructions());
+                String.format(GCG_BEAUTIFY_STRING, decResult.getPromptElement()), GlobalSettings.getInstructions());
         if (result == null)
             return;
 
@@ -162,48 +161,89 @@ public class GhidraChatGPTPlugin extends ProgramPlugin {
         return true;
     }
 
-    private class DecompilerResults {
+    private static class DecompilerResults {
         public Program prog;
         public Function func;
         public String decompiledFunc;
+        public String asmFunc;
 
         public DecompilerResults(Program prog, Function func,
-                                 String decompiledFunc) {
+                                 String decompiledFunc, String asmFunc) {
             this.prog = prog;
             this.func = func;
             this.decompiledFunc = decompiledFunc;
+            this.asmFunc = asmFunc;
+        }
+
+        public String getPromptElement() {
+            StringBuilder sb = new StringBuilder();
+            if (asmFunc != null) {
+                sb.append("Asm function code:\n").append(asmFunc).append("\n");
+            }
+            if (decompiledFunc != null) {
+                sb.append("Decompiled C function code:").append(decompiledFunc);
+            }
+            LOGGER.debug("Prompt element: " + sb);
+            return sb.toString();
         }
     }
 
     private DecompilerResults decompileCurrentFunc() {
-        String decompiledFunc;
+        String decompiledFunc = null;
+        String asmFunc = null;
 
         ProgramLocation progLoc = ComponentContainer.getCodeViewerService().getCurrentLocation();
         Program prog = progLoc.getProgram();
         FlatProgramAPI programApi = new FlatProgramAPI(prog);
         FlatDecompilerAPI decompiler = new FlatDecompilerAPI(programApi);
         Function func = programApi.getFunctionContaining(progLoc.getAddress());
+
         if (func == null) {
             LOGGER.error("Failed to find the current function");
             return null;
         }
 
-        try {
-            decompiledFunc = decompiler.decompile(func);
-        } catch (Exception e) {
-            LOGGER.error(String.format(
-                    "Failed to decompile the function: %s with the error %s",
-                    func.getName(), e));
-            return null;
+        if (GlobalSettings.isAttachCCode()) {
+            try {
+                decompiledFunc = decompiler.decompile(func);
+                LOGGER.debug("function: " + decompiledFunc);
+            } catch (Exception e) {
+                LOGGER.error(String.format(
+                        "Failed to decompile the function: %s with the error %s",
+                        func.getName(), e));
+                if (!GlobalSettings.isAttachAsmCode()) {
+                    return null;
+                }
+            }
         }
 
-        return new DecompilerResults(prog, func, decompiledFunc);
+        if (GlobalSettings.isAttachAsmCode()) {
+            asmFunc = getAsmFunction(func, prog);
+            LOGGER.debug("function: " + asmFunc);
+        }
+
+        return new DecompilerResults(prog, func, decompiledFunc, asmFunc);
+    }
+
+    private String getAsmFunction(Function function, Program program) {
+        CodeUnitFormat fmt = new BrowserCodeUnitFormat(tool);
+
+        Listing listing = program.getListing();
+        AddressSetView body = function.getBody();
+
+        StringBuilder asm = new StringBuilder();
+        for (Instruction ins : listing.getInstructions(body, true)) {
+            asm.append(ins.getAddress()).append(": ")
+                    .append(fmt.getRepresentationString(ins))
+                    .append('\n');
+        }
+
+        return asm.toString();
     }
 
     private void updateVariables(Program prog, DecompilerResults decResult,
                                  String result) {
         JSONObject jsonObj;
-
         try {
             jsonObj = new JSONObject(result);
         } catch (Exception e) {

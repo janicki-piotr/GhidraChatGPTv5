@@ -58,6 +58,10 @@ public class MenuComponent extends ComponentProvider {
                 .forEach(model -> new SetModelAction("GCGModel" + model, getName(), model)
                         .setUp()
                 );
+
+        new CCodeAction("GCGAttachCCode", getName()).setUp();
+
+        new AsmCodeAction("GCGAttachAsmCode", getName()).setUp();
     }
 
     @Override
