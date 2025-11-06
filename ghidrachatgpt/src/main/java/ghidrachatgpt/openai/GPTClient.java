@@ -23,8 +23,8 @@ public class GPTClient {
                 .apiKey(GlobalSettings.getAccessToken())
                 .checkJacksonVersionCompatibility(false)
                 .build();
-
-        return getResponseIdViaResponseApi(prompt, instructions, client);
+        return "TEST";
+        //return getResponseIdViaResponseApi(prompt, instructions, client);
     }
 
     private String getResponseIdViaResponseApi(String prompt, String instructions, OpenAIClient client) {
@@ -54,7 +54,8 @@ public class GPTClient {
                 .checkJacksonVersionCompatibility(false)
                 .build();
 
-        return checkAndGetResponseViaResponseApi(responseId, client);
+        return "TEST";
+        //return checkAndGetResponseViaResponseApi(responseId, client);
     }
 
     private String checkAndGetResponseViaResponseApi(String responseId, OpenAIClient client) {

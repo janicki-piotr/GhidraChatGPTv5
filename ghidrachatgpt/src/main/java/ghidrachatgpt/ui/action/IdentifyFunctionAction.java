@@ -5,7 +5,7 @@ import docking.action.KeyBindingData;
 import docking.action.MenuData;
 import docking.tool.ToolConstants;
 import ghidrachatgpt.config.ComponentContainer;
-import ghidrachatgpt.GhidraChatGPTPlugin;
+import ghidrachatgpt.openai.GPTService;
 
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
@@ -15,16 +15,16 @@ import static ghidrachatgpt.ui.UIConstants.ROOT_MENU_NAME;
 public class IdentifyFunctionAction extends DockingActionExtended {
     public static final String DESCRIPTION = "Identify the function with the help of ChatGPT";
     private static final String MENU_NAME = "Identify Function";
-    private final GhidraChatGPTPlugin ghidraChatGPTPlugin;
+    private final GPTService gptService;
 
     public IdentifyFunctionAction(String name, String owner) {
         super(name, owner);
-        this.ghidraChatGPTPlugin = ComponentContainer.getGhidraChatGPTPlugin();
+        this.gptService = ComponentContainer.getGptService();
     }
 
     @Override
     public void actionPerformed(ActionContext actionContext) {
-        new Thread(ghidraChatGPTPlugin::identifyFunction).start();
+        new Thread(gptService::identifyFunction).start();
     }
 
     @Override

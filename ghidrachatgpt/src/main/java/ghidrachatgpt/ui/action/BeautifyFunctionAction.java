@@ -5,7 +5,7 @@ import docking.action.KeyBindingData;
 import docking.action.MenuData;
 import docking.tool.ToolConstants;
 import ghidrachatgpt.config.ComponentContainer;
-import ghidrachatgpt.GhidraChatGPTPlugin;
+import ghidrachatgpt.openai.GPTService;
 
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
@@ -15,16 +15,16 @@ import static ghidrachatgpt.ui.UIConstants.ROOT_MENU_NAME;
 public class BeautifyFunctionAction extends DockingActionExtended {
     public static final String DESCRIPTION = "Beautify the function with the help of ChatGPT";
     private static final String MENU_NAME = "Beautify Function";
-    private final GhidraChatGPTPlugin ghidraChatGPTPlugin;
+    private final GPTService gptService;
 
     public BeautifyFunctionAction(String name, String owner) {
         super(name, owner);
-        this.ghidraChatGPTPlugin = ComponentContainer.getGhidraChatGPTPlugin();
+        this.gptService = ComponentContainer.getGptService();
     }
 
     @Override
     public void actionPerformed(ActionContext actionContext) {
-        new Thread(ghidraChatGPTPlugin::beautifyFunction).start();
+        new Thread(gptService::beautifyFunction).start();
     }
 
     @Override
