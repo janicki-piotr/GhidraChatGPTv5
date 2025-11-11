@@ -91,7 +91,7 @@ public final class Logger {
     private String formatLine(LogType type, String message) {
         String ts = LocalTime.now().format(TS);
         String lvl = padRight(type.label(), 5);
-        return ts + " [" + loggerName + "] " + lvl + " " + message;
+        return ts + "[GCGPT] [" + loggerName + "] " + lvl + " " + message;
     }
     private static String padRight(String s, int width) {
         if (s.length() >= width) {

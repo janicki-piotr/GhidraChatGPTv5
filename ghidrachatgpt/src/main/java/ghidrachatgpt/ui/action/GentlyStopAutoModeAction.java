@@ -1,38 +1,35 @@
 package ghidrachatgpt.ui.action;
 
 import docking.ActionContext;
-import docking.action.KeyBindingData;
 import docking.action.MenuData;
 import docking.tool.ToolConstants;
 import ghidrachatgpt.config.ComponentContainer;
 import ghidrachatgpt.openai.GPTService;
 
-import java.awt.event.InputEvent;
-import java.awt.event.KeyEvent;
-
+import static ghidrachatgpt.ui.UIConstants.AUTO_MODE;
 import static ghidrachatgpt.ui.UIConstants.ROOT_MENU_NAME;
-import static ghidrachatgpt.ui.UIConstants.SETTINGS_MENU;
 
-public class DebugTestFunctionAction extends DockingActionExtended {
-    public static final String DESCRIPTION = "Cheap, test call to ChatGPT API";
-    private static final String MENU_NAME = "Test call";
+public class GentlyStopAutoModeAction extends DockingActionExtended {
+    public static final String DESCRIPTION = "Gently stop the auto mode";
+    private static final String MENU_NAME = "Stop Analysis";
     private final GPTService gptService;
 
-    public DebugTestFunctionAction(String name, String owner) {
+    public GentlyStopAutoModeAction(String name, String owner) {
         super(name, owner);
         this.gptService = ComponentContainer.getGptService();
     }
 
     @Override
     public void actionPerformed(ActionContext actionContext) {
-        new Thread(gptService::testCall).start();
+        new Thread(gptService::stop).start();
     }
 
     @Override
     public void setUp() {
         this.setDescription(DESCRIPTION);
+        this.setEnabled(false);
         this.setMenuBarData(new MenuData(new String[]{
-                ToolConstants.MENU_TOOLS, ROOT_MENU_NAME, SETTINGS_MENU, MENU_NAME}));
+                ToolConstants.MENU_TOOLS, ROOT_MENU_NAME, MENU_NAME}));
         ComponentContainer.getDockingTool().addAction(this);
     }
 }

@@ -52,8 +52,8 @@ repositories {
 }
 
 dependencies {
-    implementation 'com.openai:openai-java:4.6.1'
-	implementation 'com.openai:openai-java-client-okhttp:4.6.1'
+    implementation 'com.openai:openai-java:4.7.1'
+	implementation 'com.openai:openai-java-client-okhttp:4.7.1'
 	implementation 'org.json:json:20250517'
 }
 

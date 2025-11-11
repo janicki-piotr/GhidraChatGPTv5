@@ -19,6 +19,11 @@ public class DecompilerService {
         FlatProgramAPI programApi = new FlatProgramAPI(program);
         Function function = programApi.getFunctionContaining(programLocation.getAddress());
 
+        return decompileCurrentFunc(program, function);
+    }
+
+    public DecompilerResults decompileCurrentFunc(Program program, Function function) {
+        FlatProgramAPI programApi = new FlatProgramAPI(program);
         if (function == null) {
             LOGGER.error("Failed to find the current function");
             return null;
@@ -46,6 +51,7 @@ public class DecompilerService {
         }
         return decompiledFunctionString;
     }
+
 
     private String getAsmFunction(Function function, Program program) {
         String asmFunctionString = null;

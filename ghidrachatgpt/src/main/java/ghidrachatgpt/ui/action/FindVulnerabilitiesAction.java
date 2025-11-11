@@ -25,6 +25,8 @@ public class FindVulnerabilitiesAction extends DockingActionExtended {
     @Override
     public void actionPerformed(ActionContext actionContext) {
         new Thread(gptService::findVulnerabilities).start();
+        ComponentContainer.getComponentStateService().disableProcessingFunctions();
+        ComponentContainer.getComponentStateService().enableStopFunction();
     }
 
     @Override

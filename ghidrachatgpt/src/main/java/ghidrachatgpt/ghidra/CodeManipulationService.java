@@ -1,12 +1,21 @@
 package ghidrachatgpt.ghidra;
 
+import ghidra.program.model.address.Address;
+import ghidra.program.model.address.AddressFactory;
+import ghidra.program.model.address.AddressSpace;
 import ghidra.program.model.listing.Function;
 import ghidra.program.model.listing.Program;
 import ghidra.program.model.listing.Variable;
 import ghidra.program.model.symbol.SourceType;
+import ghidra.program.util.ProgramLocation;
+import ghidrachatgpt.config.ComponentContainer;
 import ghidrachatgpt.log.Logger;
 import ghidrachatgpt.openai.GPTService;
 import org.json.JSONObject;
+
+import java.util.List;
+import java.util.stream.Collectors;
+import java.util.stream.StreamSupport;
 
 public class CodeManipulationService {
     private static final Logger LOGGER = new Logger(GPTService.class);
@@ -37,6 +46,7 @@ public class CodeManipulationService {
         Variable[] vars = decResult.func.getAllVariables();
         if (vars == null) {
             LOGGER.info("No variables to beatify");
+            addComment(decResult.prog, decResult.func, "", "[GhidraChatGPT] - Beautified the function");
             return;
         }
 
@@ -47,6 +57,7 @@ public class CodeManipulationService {
                 try {
                     var.setName(val, SourceType.USER_DEFINED);
                     LOGGER.ok(String.format("Beautified %s => %s", var.getName(), val));
+                    addComment(decResult.prog, decResult.func, "", "[GhidraChatGPT] - Beautified the function");
                 } catch (Exception exception) {
                     LOGGER.error(String.format("Failed to beautify %s => %s", var.getName(), val), exception);
                 }
@@ -64,5 +75,37 @@ public class CodeManipulationService {
         }
 
         prog.endTransaction(id, true);
+    }
+
+    public List<Function> getAllDefinedFunctions(boolean includeExternals, boolean includeThunks) {
+        ProgramLocation programLocation = ComponentContainer.getCodeViewerService().getCurrentLocation();
+        Program program = programLocation.getProgram();
+        return StreamSupport.stream(program.getFunctionManager().getFunctions(true).spliterator(), false)
+                .filter(f -> includeExternals || !f.isExternal())
+                .filter(f -> includeThunks || !f.isThunk())
+                .collect(Collectors.toList());
+    }
+
+    public boolean isFunctionAlreadyProcessed(Function function) {
+        String comment = function.getCallingConventionName();
+        return comment != null && comment.contains("[GhidraChatGPT]");
+    }
+
+    public boolean isFunctionEntryInRange(Function f, Address start, Address end) {
+        if (start.getAddressSpace() != end.getAddressSpace()) {
+            throw new IllegalArgumentException("Start and end must be in the same AddressSpace");
+        }
+
+        if (start.compareTo(end) > 0) {
+            Address t = start;
+            start = end;
+            end = t;
+        }
+
+        Address entry = f.getEntryPoint();
+        if (entry.getAddressSpace() != start.getAddressSpace()) {
+            return false;
+        }
+        return entry.compareTo(start) >= 0 && entry.compareTo(end) <= 0;
     }
 }

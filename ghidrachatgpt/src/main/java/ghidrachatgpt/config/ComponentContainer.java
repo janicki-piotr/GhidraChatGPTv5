@@ -9,6 +9,7 @@ import ghidrachatgpt.ghidra.CodeManipulationService;
 import ghidrachatgpt.ghidra.DecompilerService;
 import ghidrachatgpt.openai.GPTClient;
 import ghidrachatgpt.openai.GPTService;
+import ghidrachatgpt.ui.component.ComponentStateService;
 
 public final class ComponentContainer {
     private static Tool dockingTool;
@@ -17,6 +18,8 @@ public final class ComponentContainer {
     private static PluginTool pluginTool;
 
     private static GhidraChatGPTPlugin ghidraChatGPTPlugin;
+    private static ComponentStateService componentStateService;
+
 
     private static final GPTService GPT_SERVICE = new GPTService(new DecompilerService(), new CodeManipulationService(), new GPTClient());
 
@@ -62,5 +65,13 @@ public final class ComponentContainer {
 
     public static GPTService getGptService() {
         return GPT_SERVICE;
+    }
+
+    public static ComponentStateService getComponentStateService() {
+        return componentStateService;
+    }
+
+    public static void initComponentStateService(ComponentStateService componentStateService) {
+        ComponentContainer.componentStateService = componentStateService;
     }
 }
