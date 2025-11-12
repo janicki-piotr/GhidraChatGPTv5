@@ -96,14 +96,14 @@ public class GPTService {
     private Stream<Function> findAllFunctionsToProcess(Address start, Address end) {
         return codeManipulationService.getAllDefinedFunctions(GlobalSettings.isAutoModeIncludeExternals(), GlobalSettings.isAutoModeIncludeThunks())
                 .stream()
-                .filter(function -> !GlobalSettings.isSkipProcessed() || !codeManipulationService.isFunctionAlreadyProcessed(function))
+                .filter(function -> !GlobalSettings.isSkipProcessed() || codeManipulationService.isFunctionNotProcessed(function))
                 .filter(function -> codeManipulationService.isFunctionEntryInRange(function, start, end));
     }
 
     private Stream<Function> findAllFunctionsToProcess() {
         return codeManipulationService.getAllDefinedFunctions(true, true)
                 .stream()
-                .filter(function -> !GlobalSettings.isSkipProcessed() || !codeManipulationService.isFunctionAlreadyProcessed(function));
+                .filter(function -> !GlobalSettings.isSkipProcessed() || codeManipulationService.isFunctionNotProcessed(function));
     }
 
     public void testCall() {

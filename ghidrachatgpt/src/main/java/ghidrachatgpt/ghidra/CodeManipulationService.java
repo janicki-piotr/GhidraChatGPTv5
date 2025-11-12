@@ -1,8 +1,6 @@
 package ghidrachatgpt.ghidra;
 
 import ghidra.program.model.address.Address;
-import ghidra.program.model.address.AddressFactory;
-import ghidra.program.model.address.AddressSpace;
 import ghidra.program.model.listing.Function;
 import ghidra.program.model.listing.Program;
 import ghidra.program.model.listing.Variable;
@@ -86,9 +84,9 @@ public class CodeManipulationService {
                 .collect(Collectors.toList());
     }
 
-    public boolean isFunctionAlreadyProcessed(Function function) {
-        String comment = function.getCallingConventionName();
-        return comment != null && comment.contains("[GhidraChatGPT]");
+    public boolean isFunctionNotProcessed(Function function) {
+        String comment = function.getComment();
+        return comment == null || !comment.contains("[GhidraChatGPT]");
     }
 
     public boolean isFunctionEntryInRange(Function f, Address start, Address end) {
