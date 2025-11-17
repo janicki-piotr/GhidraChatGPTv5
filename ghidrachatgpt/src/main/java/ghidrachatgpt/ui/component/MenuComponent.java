@@ -93,6 +93,12 @@ public class MenuComponent extends ComponentProvider {
 
         new AutoModeEnableExternalsAction("GCGAutoModeEnableExternalsAction", getName()).setUp();
 
+        new SetSkipByCommentCharsAction("GCGSetSkipByCommentCharsAction", getName()).setUp();
+
+        var setThreadsAction = new SetThreadsAction("GCGSetThreadsAction", getName());
+        processingFunctions.add(setThreadsAction);
+        setThreadsAction.setUp();
+
         var autoAllFunctionsAction = new AutoAllFunctionsAction("GCGAutoAllFunctionsAction", getName());
         processingFunctions.add(autoAllFunctionsAction);
         autoAllFunctionsAction.setUp();

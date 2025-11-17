@@ -1,16 +1,25 @@
 package ghidrachatgpt.ghidra;
 
+import ghidra.app.decompiler.DecompInterface;
+import ghidra.app.decompiler.DecompileResults;
+import ghidra.app.services.DataTypeManagerService;
 import ghidra.program.model.address.Address;
+import ghidra.program.model.data.*;
 import ghidra.program.model.listing.Function;
 import ghidra.program.model.listing.Program;
 import ghidra.program.model.listing.Variable;
+import ghidra.program.model.pcode.*;
 import ghidra.program.model.symbol.SourceType;
 import ghidra.program.util.ProgramLocation;
+import ghidra.util.data.DataTypeParser;
+import ghidra.util.task.TaskMonitor;
 import ghidrachatgpt.config.ComponentContainer;
+import ghidrachatgpt.config.GlobalSettings;
 import ghidrachatgpt.log.Logger;
 import ghidrachatgpt.openai.GPTService;
 import org.json.JSONObject;
 
+import java.util.Iterator;
 import java.util.List;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
@@ -40,7 +49,6 @@ public class CodeManipulationService {
             LOGGER.error("Failed to parse beautify JSON", exception);
             return;
         }
-
         Variable[] vars = decResult.func.getAllVariables();
         if (vars == null) {
             LOGGER.info("No variables to beatify");
@@ -49,30 +57,139 @@ public class CodeManipulationService {
         }
 
         int id = prog.startTransaction(TRANSACTION_CODE);
-        for (Variable var : vars) {
-            if (jsonObj.has(var.getName())) {
-                String val = jsonObj.getString(var.getName());
+
+        JSONObject namesObj = jsonObj.optJSONObject("names");
+        if (namesObj == null) {
+            LOGGER.info("No \"names\" object in beautify JSON");
+        } else {
+            for (Variable var : vars) {
+                LOGGER.debug("Checking variable: " + var.getName());
+                if (namesObj.has(var.getName())) {
+                    String val = namesObj.getString(var.getName());
+                    try {
+                        var.setName(val, SourceType.USER_DEFINED);
+                        LOGGER.ok(String.format("Beautified %s => %s", var.getName(), val));
+                    } catch (Exception exception) {
+                        LOGGER.error(String.format("Failed to beautify %s => %s", var.getName(), val), exception);
+                    }
+                }
+            }
+
+            if (namesObj.has(decResult.func.getName())) {
+                String val = namesObj.getString(decResult.func.getName());
                 try {
-                    var.setName(val, SourceType.USER_DEFINED);
-                    LOGGER.ok(String.format("Beautified %s => %s", var.getName(), val));
-                    addComment(decResult.prog, decResult.func, "", "[GhidraChatGPT] - Beautified the function");
+                    decResult.func.setName(val, SourceType.USER_DEFINED);
+                    LOGGER.ok(String.format("Beautified %s => %s", decResult.func.getName(), val));
                 } catch (Exception exception) {
-                    LOGGER.error(String.format("Failed to beautify %s => %s", var.getName(), val), exception);
+                    LOGGER.error(String.format("Failed to beautify %s => %s", decResult.func.getName(), val), exception);
+                }
+            }
+
+            DecompInterface ifc = new DecompInterface();
+            ifc.openProgram(prog);
+            ifc.setSimplificationStyle("decompile");
+
+            DecompileResults decompileResults = ifc.decompileFunction(decResult.func, 30, TaskMonitor.DUMMY);
+
+            HighFunction hfunc = decompileResults.getHighFunction();
+            if (hfunc == null) {
+                LOGGER.error("No HighFunction (decompiler failed?)");
+                return;
+            }
+
+            LOGGER.debug("Checking highSymbols");
+
+            LocalSymbolMap lsm = hfunc.getLocalSymbolMap();
+            Iterator<HighSymbol> it = lsm.getSymbols();
+            while (it.hasNext()) {
+                HighSymbol hs = it.next();
+                LOGGER.debug("Checking highSymbol: " + hs.getName());
+                HighVariable hv = hs.getHighVariable();
+                if (hv == null) {
+                    continue;
+                }
+
+                LOGGER.debug("Checking variable: " + hv.getName());
+                String oldName = hv.getName();
+                if (!namesObj.has(oldName))
+                    continue;
+
+                String newName = namesObj.getString(oldName);
+                try {
+                    // Zapisz nazwę do bazy (Listing + Decompiler)
+                    HighFunctionDBUtil.updateDBVariable(hs, newName, null, SourceType.USER_DEFINED);
+                    LOGGER.ok("Renamed " + oldName + " => " + newName);
+                } catch (Exception e) {
+                    LOGGER.error("Failed to rename " + oldName + " => " + newName, e);
                 }
             }
         }
 
-        if (jsonObj.has(decResult.func.getName())) {
-            String val = jsonObj.getString(decResult.func.getName());
-            try {
-                decResult.func.setName(val, SourceType.USER_DEFINED);
-                LOGGER.ok(String.format("Beautified %s => %s", decResult.func.getName(), val));
-            } catch (Exception exception) {
-                LOGGER.error(String.format("Failed to beautify %s => %s", decResult.func.getName(), val), exception);
+        if (jsonObj.has("returnType")) {
+            String returnTypeStr = jsonObj.optString("returnType", "").trim();
+            if (!returnTypeStr.isEmpty()) {
+                try {
+                    updateFunctionReturnType(prog, decResult.func, returnTypeStr);
+                    LOGGER.ok(String.format("Beautified return type => %s", returnTypeStr));
+                } catch (Exception exception) {
+                    LOGGER.error(String.format("Failed to set return type => %s", returnTypeStr), exception);
+                }
             }
         }
-
+        addComment(decResult.prog, decResult.func, "", "[GhidraChatGPT] - Beautified the function");
         prog.endTransaction(id, true);
+    }
+
+
+    private void updateFunctionReturnType(Program program, Function func, String userTypeName) throws Exception {
+        if (program == null || func == null || userTypeName == null) {
+            return;
+        }
+
+        userTypeName = userTypeName.trim();
+        if (userTypeName.isEmpty()) {
+            return;
+        }
+
+        DataType dt;
+        try {
+            DataTypeManagerService dtService = ComponentContainer.getDockingTool().getService(DataTypeManagerService.class);
+            DataTypeParser parser = new DataTypeParser(dtService, DataTypeParser.AllowedDataTypes.DYNAMIC);
+            dt = parser.parse(userTypeName);
+        }
+        catch (Exception exception) {
+            dt = resolveSimpleType(program, userTypeName);
+        }
+
+        if (dt == null) {
+            throw new IllegalArgumentException("Unknown return type: " + userTypeName);
+        }
+
+        func.setReturnType(dt, SourceType.USER_DEFINED);
+    }
+
+    private DataType resolveSimpleType(Program program, String userTypeName) {
+        switch (userTypeName) {
+            case "void":  return VoidDataType.dataType;
+            case "char":  return CharDataType.dataType;
+            case "uchar":
+            case "unsigned char":  return UnsignedCharDataType.dataType;
+            case "short":  return ShortDataType.dataType;
+            case "ushort":
+            case "unsigned short":  return UnsignedShortDataType.dataType;
+            case "int":
+            case "sint":   return IntegerDataType.dataType;
+            case "uint":
+            case "unsigned int":   return UnsignedIntegerDataType.dataType;
+            case "long":   return LongDataType.dataType;
+            case "ulong":
+            case "unsigned long":  return UnsignedLongDataType.dataType;
+            case "float":  return FloatDataType.dataType;
+            case "double": return DoubleDataType.dataType;
+            default: break;
+        }
+
+        return program.getDataTypeManager().getDataType(CategoryPath.ROOT, userTypeName);
     }
 
     public List<Function> getAllDefinedFunctions(boolean includeExternals, boolean includeThunks) {
@@ -84,9 +201,18 @@ public class CodeManipulationService {
                 .collect(Collectors.toList());
     }
 
-    public boolean isFunctionNotProcessed(Function function) {
+    public boolean isFunctionNotProcessedByPlugin(Function function) {
         String comment = function.getComment();
         return comment == null || !comment.contains("[GhidraChatGPT]");
+    }
+
+    public boolean isFunctionNotProcessedByCommentChars(Function function) {
+        String comment = function.getComment();
+        Long commentChars = GlobalSettings.getSkipByCommentChars();
+        if (commentChars == 0 || comment == null || comment.isEmpty()) {
+            return true;
+        }
+        return comment.length() < commentChars;
     }
 
     public boolean isFunctionEntryInRange(Function f, Address start, Address end) {

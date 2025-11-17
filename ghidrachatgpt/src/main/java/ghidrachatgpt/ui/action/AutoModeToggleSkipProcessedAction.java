@@ -10,7 +10,7 @@ import static ghidrachatgpt.ui.UIConstants.*;
 
 public class AutoModeToggleSkipProcessedAction extends ToggleDockingActionExtended {
     public static final String DESCRIPTION = "Enable skipping processed function";
-    private static final String MENU_NAME = "Skip Processed Functions";
+    private static final String MENU_NAME = "Skip Functions Processed By Plugin";
 
     public AutoModeToggleSkipProcessedAction(String name, String owner) {
         super(name, owner);

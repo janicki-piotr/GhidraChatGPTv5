@@ -14,6 +14,9 @@ import ghidrachatgpt.log.Logger;
 import ghidrachatgpt.ui.action.UpdateTokenAction;
 
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Stream;
 
@@ -44,45 +47,68 @@ public class GPTService {
     public void autoMode() {
         unstop();
         autoMode(limitStream(findAllFunctionsToProcess()));
+
+        LOGGER.info("Auto Mode is done.");
+        ComponentContainer.getComponentStateService().enableProcessingFunctions();
+        ComponentContainer.getComponentStateService().disableStopFunction();
     }
 
     public void autoMode(Address start, Address end) {
         unstop();
         autoMode(limitStream(findAllFunctionsToProcess(start, end)));
-    }
-
-    private void autoMode(List<Function> functions) {
-        ProgramLocation programLocation = ComponentContainer.getCodeViewerService().getCurrentLocation();
-        Program program = programLocation.getProgram();
-        try {
-            functions.forEach(function -> {
-                DecompilerResults decResult = decompilerService.decompileCurrentFunc(program, function);
-                if (stop.get()) {
-                    throw new StopProcessingException();
-                }
-                if (GlobalSettings.isEnableIdentifyFunctionInAuto()) {
-                    identifyFunction(decResult);
-                }
-                if (stop.get()) {
-                    throw new StopProcessingException();
-                }
-                if (GlobalSettings.isEnableFindVulnerabilitiesInAuto()) {
-                    findVulnerabilities(decResult);
-                }
-                if (stop.get()) {
-                    throw new StopProcessingException();
-                }
-                if (GlobalSettings.isEnableBeautifyFunctionInAuto()) {
-                    beautifyFunction(decResult);
-                }
-            });
-        } catch (StopProcessingException exception) {
-
-        }
 
         LOGGER.info("Auto Mode is done.");
         ComponentContainer.getComponentStateService().enableProcessingFunctions();
         ComponentContainer.getComponentStateService().disableStopFunction();
+    }
+
+    private void autoMode(List<Function> functions) {
+        if (!checkOpenAIToken()) {
+            return;
+        }
+
+        ProgramLocation programLocation = ComponentContainer.getCodeViewerService().getCurrentLocation();
+        ExecutorService executor = Executors.newFixedThreadPool(GlobalSettings.getAutoModeThreads());
+        try {
+            functions.forEach(function -> executor.submit(() -> {
+                if (stop.get()) {
+                    return;
+                }
+                try {
+                    autoModeFunctionProcess(function);
+                } catch (StopProcessingException exception) {
+                    executor.shutdownNow();
+                }
+            }));
+            executor.shutdown();
+            executor.awaitTermination(Long.MAX_VALUE, TimeUnit.NANOSECONDS);
+        } catch (InterruptedException e) {
+            LOGGER.error("Error during processing:" + e);
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    private void autoModeFunctionProcess(Function function) {
+        DecompilerResults decResult = decompilerService.decompileCurrentFunc(function.getProgram(), function);
+        if (stop.get()) {
+            throw new StopProcessingException();
+        }
+        if (GlobalSettings.isEnableBeautifyFunctionInAuto()) {
+            beautifyFunction(decResult);
+        }
+        if (stop.get()) {
+            throw new StopProcessingException();
+        }
+        if (GlobalSettings.isEnableIdentifyFunctionInAuto()) {
+            identifyFunction(decResult);
+        }
+        if (stop.get()) {
+            throw new StopProcessingException();
+        }
+        if (GlobalSettings.isEnableFindVulnerabilitiesInAuto()) {
+            findVulnerabilities(decResult);
+        }
     }
 
     private List<Function> limitStream(Stream<Function> stream) {
@@ -96,14 +122,16 @@ public class GPTService {
     private Stream<Function> findAllFunctionsToProcess(Address start, Address end) {
         return codeManipulationService.getAllDefinedFunctions(GlobalSettings.isAutoModeIncludeExternals(), GlobalSettings.isAutoModeIncludeThunks())
                 .stream()
-                .filter(function -> !GlobalSettings.isSkipProcessed() || codeManipulationService.isFunctionNotProcessed(function))
+                .filter(function -> !GlobalSettings.isSkipProcessed() || codeManipulationService.isFunctionNotProcessedByPlugin(function))
+                .filter(codeManipulationService::isFunctionNotProcessedByCommentChars)
                 .filter(function -> codeManipulationService.isFunctionEntryInRange(function, start, end));
     }
 
     private Stream<Function> findAllFunctionsToProcess() {
-        return codeManipulationService.getAllDefinedFunctions(true, true)
+        return codeManipulationService.getAllDefinedFunctions(GlobalSettings.isAutoModeIncludeExternals(), GlobalSettings.isAutoModeIncludeThunks())
                 .stream()
-                .filter(function -> !GlobalSettings.isSkipProcessed() || codeManipulationService.isFunctionNotProcessed(function));
+                .filter(function -> !GlobalSettings.isSkipProcessed() || codeManipulationService.isFunctionNotProcessedByPlugin(function))
+                .filter(codeManipulationService::isFunctionNotProcessedByCommentChars);
     }
 
     public void testCall() {
@@ -196,7 +224,11 @@ public class GPTService {
         if (result == null) {
             return;
         }
-
+        int firstBrace = result.indexOf('{');
+        int lastBrace = result.lastIndexOf('}');
+        if (firstBrace >= 0 && lastBrace > firstBrace) {
+            result = result.substring(firstBrace, lastBrace + 1);
+        }
         codeManipulationService.updateVariables(decResult.prog, decResult, result);
 
         LOGGER.ok(String.format("Beautified the function: %s", decResult.func.getName()));
@@ -229,7 +261,7 @@ public class GPTService {
                 return null;
             }
             try {
-                Thread.sleep(15000);
+                Thread.sleep(30000);
             } catch (InterruptedException e) {
                 LOGGER.error("Error during waiting for response: " + e.getMessage(), e);
                 Thread.currentThread().interrupt();

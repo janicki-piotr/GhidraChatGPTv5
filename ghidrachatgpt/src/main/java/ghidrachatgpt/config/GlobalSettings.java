@@ -5,23 +5,25 @@ import ghidrachatgpt.log.Logger;
 public final class GlobalSettings {
     private final static Logger LOGGER = new Logger(GlobalSettings.class);
 
-    private static String accessToken = "";
-    private static String openAiModel = "gpt-5-pro";
-    private static String instructions = """
+    private static volatile String accessToken = "";
+    private static volatile String openAiModel = "gpt-5-pro";
+    private static volatile String instructions = """
             You are an assistant helping out with reverse engineering and vulnerability research.\s
             """;
-    private static boolean attachCCode = true;
-    private static boolean attachAsmCode = true;
+    private static volatile boolean attachCCode = true;
+    private static volatile boolean attachAsmCode = true;
 
-    private static long requestTimeout = 1800;
+    private static volatile long requestTimeout = 1800;
 
-    private static boolean skipProcessed = true;
-    private static Long limitFunctions = 0L;
-    private static boolean enableIdentifyFunctionInAuto = true;
-    private static boolean enableBeautifyFunctionInAuto = false;
-    private static boolean enableFindVulnerabilitiesInAuto = false;
-    private static boolean autoModeIncludeExternals = true;
-    private static boolean autoModeIncludeThunks = true;
+    private static volatile boolean skipProcessed = true;
+    private static volatile Long skipByCommentChars = 0L;
+    private static volatile Long limitFunctions = 0L;
+    private static volatile boolean enableIdentifyFunctionInAuto = true;
+    private static volatile boolean enableBeautifyFunctionInAuto = false;
+    private static volatile boolean enableFindVulnerabilitiesInAuto = false;
+    private static volatile boolean autoModeIncludeExternals = true;
+    private static volatile boolean autoModeIncludeThunks = true;
+    private static volatile short autoModeThreads = 3;
 
     public static String getAccessToken() {
         return accessToken;
@@ -86,7 +88,7 @@ public final class GlobalSettings {
         try {
             GlobalSettings.requestTimeout = Long.parseLong(requestTimeout);
         } catch (Exception exception) {
-            LOGGER.error("Error during setting request timeout",exception);
+            LOGGER.error("Error during setting request timeout", exception);
             return false;
         }
         return true;
@@ -111,7 +113,7 @@ public final class GlobalSettings {
         try {
             GlobalSettings.limitFunctions = Long.parseLong(limitFunctions);
         } catch (Exception exception) {
-            LOGGER.error("Error during setting limit functions",exception);
+            LOGGER.error("Error during setting limit functions", exception);
             return false;
         }
         return true;
@@ -155,5 +157,39 @@ public final class GlobalSettings {
 
     public static void setAutoModeIncludeThunks(boolean autoModeIncludeThunks) {
         GlobalSettings.autoModeIncludeThunks = autoModeIncludeThunks;
+    }
+
+    public static Long getSkipByCommentChars() {
+        return skipByCommentChars;
+    }
+
+    public static boolean setSkipByCommentChars(String skipByCommentChars) {
+        if (skipByCommentChars == null || skipByCommentChars.isEmpty()) {
+            return false;
+        }
+        try {
+            GlobalSettings.skipByCommentChars = Long.parseLong(skipByCommentChars);
+        } catch (Exception exception) {
+            LOGGER.error("Error during setting skipping by character amount in comment", exception);
+            return false;
+        }
+        return true;
+    }
+
+    public static short getAutoModeThreads() {
+        return autoModeThreads;
+    }
+
+    public static boolean setAutoModeThreads(String autoModeThreads) {
+        if (autoModeThreads == null || autoModeThreads.isEmpty()) {
+            return false;
+        }
+        try {
+            GlobalSettings.autoModeThreads = Short.parseShort(autoModeThreads);
+        } catch (Exception exception) {
+            LOGGER.error("Error during setting thread amount", exception);
+            return false;
+        }
+        return true;
     }
 }
