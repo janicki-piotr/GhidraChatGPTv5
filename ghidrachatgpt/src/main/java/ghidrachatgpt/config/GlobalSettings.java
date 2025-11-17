@@ -15,8 +15,8 @@ public final class GlobalSettings {
 
     private static volatile long requestTimeout = 1800;
 
-    private static volatile boolean skipProcessed = true;
-    private static volatile Long skipByCommentChars = 0L;
+    private static volatile boolean skipProcessed = false;
+    private static volatile Long skipByCommentChars = 200L;
     private static volatile Long limitFunctions = 0L;
     private static volatile boolean enableIdentifyFunctionInAuto = true;
     private static volatile boolean enableBeautifyFunctionInAuto = false;
