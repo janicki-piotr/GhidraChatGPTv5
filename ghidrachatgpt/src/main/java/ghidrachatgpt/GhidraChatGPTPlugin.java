@@ -57,6 +57,7 @@ public class GhidraChatGPTPlugin extends ProgramPlugin {
     @Override
     public void init() {
         super.init();
+        GlobalSettings.loadFromDisk();
         ComponentContainer.initConsoleService(tool.getService(ConsoleService.class));
         ComponentContainer.initCodeViewerService(tool.getService(CodeViewerService.class));
         ComponentContainer.initCPluginTool(tool);

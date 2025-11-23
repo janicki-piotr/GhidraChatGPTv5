@@ -2,6 +2,7 @@ package ghidrachatgpt.log;
 
 import ghidra.app.services.ConsoleService;
 import ghidrachatgpt.config.ComponentContainer;
+import ghidrachatgpt.config.GlobalSettings;
 
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
@@ -23,6 +24,11 @@ public final class Logger {
             throw new IllegalArgumentException("level cannot be null");
         }
         Logger.level = level;
+        GlobalSettings.persist();
+    }
+
+    public static LogType getLogType() {
+        return Logger.level;
     }
 
     public LogType getLevel() {

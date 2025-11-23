@@ -4,6 +4,7 @@ import ghidra.program.model.address.Address;
 import ghidra.program.model.listing.Function;
 import ghidra.program.model.listing.Program;
 import ghidra.program.util.ProgramLocation;
+import ghidra.util.task.TaskMonitor;
 import ghidrachatgpt.config.ComponentContainer;
 import ghidrachatgpt.config.GlobalSettings;
 import ghidrachatgpt.ghidra.CodeManipulationService;
@@ -18,6 +19,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
 
 import static ghidrachatgpt.config.PromptConstraints.*;
@@ -28,6 +30,8 @@ public class GPTService {
     private final CodeManipulationService codeManipulationService;
     private final GPTClient gptClient;
     private final AtomicBoolean stop = new AtomicBoolean(false);
+    private final AtomicInteger processedFunctions = new AtomicInteger(0);
+    private final Object saveLock = new Object();
 
     public GPTService(DecompilerService decompilerService, CodeManipulationService codeManipulationService, GPTClient gptClient) {
         this.decompilerService = decompilerService;
@@ -67,7 +71,6 @@ public class GPTService {
             return;
         }
 
-        ProgramLocation programLocation = ComponentContainer.getCodeViewerService().getCurrentLocation();
         ExecutorService executor = Executors.newFixedThreadPool(GlobalSettings.getAutoModeThreads());
         try {
             functions.forEach(function -> executor.submit(() -> {
@@ -76,6 +79,10 @@ public class GPTService {
                 }
                 try {
                     autoModeFunctionProcess(function);
+                    int count = processedFunctions.incrementAndGet();
+                    if (count % 5 == 0) {
+                        saveProgramWithComments(function.getProgram(), count);
+                    }
                 } catch (StopProcessingException exception) {
                     executor.shutdownNow();
                 }
@@ -86,6 +93,19 @@ public class GPTService {
             LOGGER.error("Error during processing:" + e);
         } finally {
             executor.shutdownNow();
+        }
+    }
+
+    private void saveProgramWithComments(Program program, int count) {
+        synchronized (saveLock) {
+            try {
+                program.flushEvents();
+
+                program.save("", TaskMonitor.DUMMY);
+                LOGGER.debug("Auto saved current project.");
+            } catch (Exception e) {
+                LOGGER.error("Error during auto saving.", e);
+            }
         }
     }
 
@@ -145,7 +165,7 @@ public class GPTService {
 
         LOGGER.info(String.format("Test call result will be added to function: %s", decResult.func.getName()));
 
-        String result = askChatGPT("2+2", null);
+        String result = askChatGPT("2+2", null, decResult.func.getName(), "debug");
         if (result == null) {
             ComponentContainer.getComponentStateService().enableProcessingFunctions();
             ComponentContainer.getComponentStateService().disableStopFunction();
@@ -172,7 +192,7 @@ public class GPTService {
         LOGGER.info(String.format("Identifying the current function: %s",
                 decResult.func.getName()));
         String result = askChatGPT(
-                String.format(getGcgIdentifyString(), decResult.getPromptElement()), GlobalSettings.getInstructions());
+                String.format(getGcgIdentifyString(), decResult.getPromptElement()), GlobalSettings.getInstructions(), decResult.func.getName(), "identification");
         if (result == null)
             return;
 
@@ -195,7 +215,7 @@ public class GPTService {
         LOGGER.info(String.format("Finding vulnerabilities in the current function: %s",
                 decResult.func.getName()));
         String result = askChatGPT(
-                String.format(getGcgVulnerabilityString(), decResult.getPromptElement()), GlobalSettings.getInstructions());
+                String.format(getGcgVulnerabilityString(), decResult.getPromptElement()), GlobalSettings.getInstructions(), decResult.func.getName(), "vulnerabilities");
         if (result == null) {
             return;
         }
@@ -217,10 +237,9 @@ public class GPTService {
             return;
         }
 
-        LOGGER.info(String.format("Beautifying the function: %s",
-                decResult.func.getName()));
+        LOGGER.info(String.format("Beautifying the function: %s", decResult.func.getName()));
         String result = askChatGPT(
-                String.format(getGcgBeautifyString(), decResult.getPromptElement()), GlobalSettings.getInstructions());
+                String.format(getGcgBeautifyString(), decResult.getPromptElement()), GlobalSettings.getInstructions(), decResult.func.getName(), "beatification");
         if (result == null) {
             return;
         }
@@ -234,7 +253,7 @@ public class GPTService {
         LOGGER.ok(String.format("Beautified the function: %s", decResult.func.getName()));
     }
 
-    private String askChatGPT(String prompt, String instructions) {
+    private String askChatGPT(String prompt, String instructions, String functionName, String function) {
         if (stop.get()) {
             LOGGER.info("Process stopped by user");
             return null;
@@ -251,8 +270,9 @@ public class GPTService {
         }
         String result;
         int currentTry = 1;
+        int sleepMins = 30;
         do {
-            if (currentTry > ((GlobalSettings.getRequestTimeout() + 14) / 15) * 15) {
+            if (currentTry > ((GlobalSettings.getRequestTimeout() + sleepMins - 1) / sleepMins) * sleepMins) {
                 LOGGER.error("OpenAI Request timeout");
                 return null;
             }
@@ -261,7 +281,7 @@ public class GPTService {
                 return null;
             }
             try {
-                Thread.sleep(30000);
+                Thread.sleep(sleepMins * 1000);
             } catch (InterruptedException e) {
                 LOGGER.error("Error during waiting for response: " + e.getMessage(), e);
                 Thread.currentThread().interrupt();
@@ -270,6 +290,8 @@ public class GPTService {
             currentTry++;
             result = gptClient.checkAndGetOpenAIResponseAsync(responseId);
         } while (result == null);
+
+        GPTRequestLogger.log(prompt, instructions, result, functionName, function);
 
         return result;
     }
