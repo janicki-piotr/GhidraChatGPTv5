@@ -81,7 +81,7 @@ public class GPTService {
                     autoModeFunctionProcess(function);
                     int count = processedFunctions.incrementAndGet();
                     if (count % 5 == 0) {
-                        saveProgramWithComments(function.getProgram(), count);
+                        saveProgramWithComments(function.getProgram());
                     }
                 } catch (StopProcessingException exception) {
                     executor.shutdownNow();
@@ -93,10 +93,13 @@ public class GPTService {
             LOGGER.error("Error during processing:" + e);
         } finally {
             executor.shutdownNow();
+            if (!functions.isEmpty()) {
+                saveProgramWithComments(functions.getFirst().getProgram());
+            }
         }
     }
 
-    private void saveProgramWithComments(Program program, int count) {
+    private void saveProgramWithComments(Program program) {
         synchronized (saveLock) {
             try {
                 program.flushEvents();

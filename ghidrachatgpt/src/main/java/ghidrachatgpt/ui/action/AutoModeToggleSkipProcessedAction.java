@@ -23,7 +23,7 @@ public class AutoModeToggleSkipProcessedAction extends ToggleDockingActionExtend
 
     @Override
     public void setUp() {
-        this.setSelected(GlobalSettings.isAttachAsmCode());
+        this.setSelected(GlobalSettings.isSkipProcessed());
         this.setEnabled(true);
         this.setDescription(DESCRIPTION);
         this.setMenuBarData(new MenuData(new String[]{

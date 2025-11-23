@@ -48,6 +48,7 @@ public class GhidraChatGPTPlugin extends ProgramPlugin {
     public GhidraChatGPTPlugin(PluginTool tool) {
         super(tool);
         ComponentContainer.initGhidraChatGPTPlugin(this);
+        GlobalSettings.loadFromDisk();
         MenuComponent menuComponent = new MenuComponent(this, getName());
         String topicName = this.getClass().getPackage().getName();
         String anchorName = "HelpAnchor";
@@ -57,7 +58,6 @@ public class GhidraChatGPTPlugin extends ProgramPlugin {
     @Override
     public void init() {
         super.init();
-        GlobalSettings.loadFromDisk();
         ComponentContainer.initConsoleService(tool.getService(ConsoleService.class));
         ComponentContainer.initCodeViewerService(tool.getService(CodeViewerService.class));
         ComponentContainer.initCPluginTool(tool);
