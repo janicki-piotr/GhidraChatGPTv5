@@ -21,12 +21,18 @@ import org.json.JSONObject;
 
 import java.util.Iterator;
 import java.util.List;
+import java.util.Objects;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 
 public class CodeManipulationService {
     private static final Logger LOGGER = new Logger(GPTService.class);
     private static final String TRANSACTION_CODE = "GhidraChatGPT";
+    private static final String ERROR_MARKER = "[AUTO_CHANGE_ERROR] ";
+    private static final String TYPE_MARKER_PARAM = "[NO_TYPE_CHANGE_PARAM_WARNING] ";
+    private static final String NAME_MARKER_PARAM = "[NO_NAME_CHANGE_PARAM_WARNING] ";
+    private static final String TYPE_MARKER = "[NO_TYPE_CHANGE_WARNING] ";
+    private static final String NAME_MARKER = "[NO_NAME_CHANGE_WARNING] ";
 
     public void addComment(Program prog, Function func, String comment, String commentHeader) {
         int id = prog.startTransaction(TRANSACTION_CODE);
@@ -54,7 +60,7 @@ public class CodeManipulationService {
 
         updateFunctionReturnType(prog, decResult, jsonObj, comment);
         updateFunctionName(decResult, jsonObj, comment);
-        updateFunctionParameters(decResult, jsonObj, comment);
+        updateFunctionParameters(prog, decResult, jsonObj, comment);
         updateFunctionsLocalVariables(prog, decResult, jsonObj, comment);
 
         addComment(decResult.prog, decResult.func, comment.toString(), "[GhidraChatGPT] - Beautified the function");
@@ -63,9 +69,12 @@ public class CodeManipulationService {
 
     private void updateFunctionsLocalVariables(Program prog, DecompilerResults decResult, JSONObject jsonObj, StringBuilder comment) {
         JSONObject namesObj = jsonObj.optJSONObject("names");
+        JSONObject typesObj = jsonObj.optJSONObject("types");
         if (namesObj == null) {
-            LOGGER.info("No \"names\" object in beautify JSON");
-            return;
+            namesObj = new JSONObject();
+        }
+        if (typesObj == null) {
+            typesObj = new JSONObject();
         }
 
         DecompInterface ifc = new DecompInterface();
@@ -77,6 +86,7 @@ public class CodeManipulationService {
         HighFunction hfunc = decompileResults.getHighFunction();
         if (hfunc == null) {
             LOGGER.error("No HighFunction (decompiler failed?)");
+            comment.append(ERROR_MARKER).append("Local Variables\n");
             return;
         }
 
@@ -85,7 +95,10 @@ public class CodeManipulationService {
         LocalSymbolMap lsm = hfunc.getLocalSymbolMap();
         Iterator<HighSymbol> it = lsm.getSymbols();
 
-        boolean isFirstParam = true;
+
+        if (it.hasNext()) {
+            comment.append("Local Variables:\n");
+        }
         while (it.hasNext()) {
             HighSymbol hs = it.next();
             LOGGER.debug("Checking highSymbol: " + hs.getName());
@@ -94,31 +107,55 @@ public class CodeManipulationService {
                 continue;
             }
 
-            LOGGER.debug("Checking variable: " + hv.getName());
             String oldName = hv.getName();
-            if (!namesObj.has(oldName))
-                continue;
+            String newName = oldName;
+            String oldType = hv.getDataType().toString();
+            String newType = oldType;
 
-            String newName = namesObj.getString(oldName);
-            try {
-                HighFunctionDBUtil.updateDBVariable(hs, newName, null, SourceType.USER_DEFINED);
-                LOGGER.ok("Renamed " + oldName + " => " + newName);
-                if (isFirstParam) {
-                    comment.append("Local Variables:\n");
-                    isFirstParam = false;
-                }
-                comment.append(oldName).append(" -> ").append(newName).append("\n");
-            } catch (Exception e) {
-                LOGGER.error("Failed to rename " + oldName + " => " + newName, e);
+            if ("UNNAMED".equals(oldName)) {
+                continue;
             }
+
+            LOGGER.debug("Checking variable: " + hv.getName());
+
+            if (typesObj.has(oldName)) {
+                newType = typesObj.getString(oldName);
+            } else {
+                comment.append(TYPE_MARKER);
+            }
+
+            if (namesObj.has(oldName)) {
+                newName = namesObj.getString(oldName);
+            } else {
+                comment.append(NAME_MARKER);
+            }
+
+            try {
+                if (!Objects.equals(newName, oldName) && !Objects.equals(newType, oldType)) {
+                    HighFunctionDBUtil.updateDBVariable(hs, newName, parseDataType(prog, newType), SourceType.USER_DEFINED);
+                } else if (!Objects.equals(newName, oldName)) {
+                    HighFunctionDBUtil.updateDBVariable(hs, newName, null, SourceType.USER_DEFINED);
+                } else if (!Objects.equals(newType, oldType)) {
+                    HighFunctionDBUtil.updateDBVariable(hs, null, parseDataType(prog, newType), SourceType.USER_DEFINED);
+                }
+
+                LOGGER.ok(String.format("Beautified " + oldType + " " + oldName + " => " + newType + " " + newName));
+            } catch (Exception e) {
+                LOGGER.error("Failed to beautify  " + oldType + " " + oldName + " => " + newType + " " + newName, e);
+                comment.append(ERROR_MARKER);
+            }
+            comment.append(oldType).append(" ").append(oldName).append(" -> ").append(newType).append(" ").append(newName).append("\n");
         }
     }
 
-    private void updateFunctionParameters(DecompilerResults decResult, JSONObject jsonObj, StringBuilder comment) {
+    private void updateFunctionParameters(Program prog, DecompilerResults decResult, JSONObject jsonObj, StringBuilder comment) {
         JSONObject namesObj = jsonObj.optJSONObject("names");
+        JSONObject typesObj = jsonObj.optJSONObject("types");
         if (namesObj == null) {
-            LOGGER.info("No \"names\" object in beautify JSON");
-            return;
+            namesObj = new JSONObject();
+        }
+        if (typesObj == null) {
+            typesObj = new JSONObject();
         }
 
         Variable[] vars = decResult.func.getParameters();
@@ -126,24 +163,46 @@ public class CodeManipulationService {
             LOGGER.info("No parameters to beatify");
             return;
         }
-        boolean isFirstParam = true;
+        if (vars.length > 0) {
+            comment.append("Function Parameters:\n");
+        }
         for (Variable var : vars) {
             String oldName = var.getName();
+            String newName = oldName;
+            String oldType = var.getDataType().toString();
+            String newType = oldType;
+            if ("UNNAMED".equals(oldName)) {
+                continue;
+            }
             LOGGER.debug("Checking variable: " + oldName);
+            if (typesObj.has(oldName)) {
+                newType = typesObj.getString(oldName);
+                try {
+                    updateVariableType(prog, var, newType);
+                    LOGGER.ok(String.format("Beautified " + oldName + " type => " + newType));
+                } catch (Exception exception) {
+                    LOGGER.error(String.format("Failed to set" + oldName + " type => " + newType), exception);
+                    comment.append(ERROR_MARKER);
+                }
+            } else {
+                comment.append(TYPE_MARKER_PARAM);
+            }
+
             if (namesObj.has(oldName)) {
-                String newName = namesObj.getString(oldName);
+                newName = namesObj.getString(oldName);
                 try {
                     var.setName(newName, SourceType.USER_DEFINED);
                     LOGGER.ok(String.format("Beautified %s => %s", var.getName(), newName));
-                    if (isFirstParam) {
-                        comment.append("Function Parameters:\n");
-                        isFirstParam = false;
-                    }
-                    comment.append(oldName).append(" -> ").append(newName).append("\n");
                 } catch (Exception exception) {
                     LOGGER.error(String.format("Failed to beautify %s => %s", oldName, newName), exception);
+                    if (!comment.toString().contains(ERROR_MARKER)) {
+                        comment.append(ERROR_MARKER);
+                    }
                 }
+            } else {
+                comment.append(NAME_MARKER_PARAM);
             }
+            comment.append(oldType).append(" ").append(oldName).append(" -> ").append(newType).append(" ").append(newName).append("\n");
         }
     }
 
@@ -179,14 +238,30 @@ public class CodeManipulationService {
             return;
         }
 
+        String oldReturnType = decResult.func.getReturnType().getName();
         try {
-            String oldReturnType = decResult.func.getReturnType().getName();
             updateFunctionReturnType(prog, decResult.func, returnTypeStr);
             LOGGER.ok(String.format("Beautified return type => %s", returnTypeStr));
             comment.append("Return Type: ").append(oldReturnType).append(" -> ").append(returnTypeStr).append("\n");
         } catch (Exception exception) {
             LOGGER.error(String.format("Failed to set return type => %s", returnTypeStr), exception);
+            comment.append(ERROR_MARKER).append("Return Type: ").append(oldReturnType).append(" -> ").append(returnTypeStr).append("\n");
         }
+    }
+
+    private void updateVariableType(Program program, Variable var, String userTypeName) throws Exception {
+        if (program == null || var == null || userTypeName == null) {
+            return;
+        }
+
+        userTypeName = userTypeName.trim();
+        if (userTypeName.isEmpty()) {
+            return;
+        }
+
+        DataType dt = parseDataType(program, userTypeName);
+
+        var.setDataType(dt, SourceType.USER_DEFINED);
     }
 
     private void updateFunctionReturnType(Program program, Function func, String userTypeName) throws Exception {
@@ -199,18 +274,7 @@ public class CodeManipulationService {
             return;
         }
 
-        DataType dt;
-        try {
-            DataTypeManagerService dtService = ComponentContainer.getDockingTool().getService(DataTypeManagerService.class);
-            DataTypeParser parser = new DataTypeParser(dtService, DataTypeParser.AllowedDataTypes.DYNAMIC);
-            dt = parser.parse(userTypeName);
-        } catch (Exception exception) {
-            dt = resolveSimpleType(program, userTypeName);
-        }
-
-        if (dt == null) {
-            throw new IllegalArgumentException("Unknown return type: " + userTypeName);
-        }
+        DataType dt = parseDataType(program, userTypeName);
 
         func.setReturnType(dt, SourceType.USER_DEFINED);
     }
@@ -290,5 +354,23 @@ public class CodeManipulationService {
             return false;
         }
         return entry.compareTo(start) >= 0 && entry.compareTo(end) <= 0;
+    }
+
+    private DataType parseDataType(Program program, String userTypeName) {
+        DataType dt;
+        try {
+            DataTypeManager dtm = program.getDataTypeManager();
+            DataTypeManagerService dtService = ComponentContainer.getDockingTool().getService(DataTypeManagerService.class);
+            DataTypeParser parser = new DataTypeParser(dtm, dtm, new FirstMatchDataTypeQueryService(dtService), DataTypeParser.AllowedDataTypes.DYNAMIC);
+            dt = parser.parse(userTypeName);
+        } catch (Exception exception) {
+            dt = resolveSimpleType(program, userTypeName);
+        }
+
+        if (dt == null) {
+            throw new IllegalArgumentException("Unknown return type: " + userTypeName);
+        }
+
+        return dt;
     }
 }

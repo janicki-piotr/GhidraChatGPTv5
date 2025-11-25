@@ -6,10 +6,13 @@ import docking.action.MenuData;
 import docking.tool.ToolConstants;
 import ghidra.program.model.listing.Program;
 import ghidra.program.util.ProgramLocation;
+import ghidra.util.task.TaskBuilder;
+import ghidra.util.task.TaskMonitorAdapter;
 import ghidrachatgpt.config.ComponentContainer;
 import ghidrachatgpt.openai.GPTService;
 import ghidrachatgpt.ui.component.AddressRangeDialog;
 
+import javax.swing.*;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 
@@ -21,7 +24,7 @@ public class AutoAddressesFunctionsAction extends DockingActionExtended {
     private static final String MENU_NAME = "Analyze Functions in Address Range";
     private final GPTService gptService;
     String preStart = "";
-    String preEnd   = "";
+    String preEnd = "";
 
 
     public AutoAddressesFunctionsAction(String name, String owner) {
@@ -41,11 +44,14 @@ public class AutoAddressesFunctionsAction extends DockingActionExtended {
                 (start, end) -> {
                     preEnd = end.toString();
                     preStart = start.toString();
-                    gptService.autoMode(start, end);
-                    ComponentContainer.getComponentStateService().disableProcessingFunctions();
-                    ComponentContainer.getComponentStateService().enableStopFunction();
+                    TaskBuilder.withRunnable(monitor -> {
+                                gptService.autoMode(start, end);
+                                ComponentContainer.getComponentStateService().disableProcessingFunctions();
+                                ComponentContainer.getComponentStateService().enableStopFunction();
+                            })
+                            .setTitle("ChatGPT auto mode")
+                            .launchInBackground(new TaskMonitorAdapter());
                 });
-
         ComponentContainer.getDockingTool().showDialog(dlg);
     }
 

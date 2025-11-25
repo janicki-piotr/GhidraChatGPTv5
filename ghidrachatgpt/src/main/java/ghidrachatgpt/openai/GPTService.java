@@ -117,14 +117,14 @@ public class GPTService {
         if (stop.get()) {
             throw new StopProcessingException();
         }
-        if (GlobalSettings.isEnableBeautifyFunctionInAuto()) {
-            beautifyFunction(decResult);
+        if (GlobalSettings.isEnableIdentifyFunctionInAuto()) {
+            identifyFunction(decResult);
         }
         if (stop.get()) {
             throw new StopProcessingException();
         }
-        if (GlobalSettings.isEnableIdentifyFunctionInAuto()) {
-            identifyFunction(decResult);
+        if (GlobalSettings.isEnableBeautifyFunctionInAuto()) {
+            beautifyFunction(decResult);
         }
         if (stop.get()) {
             throw new StopProcessingException();
@@ -273,9 +273,9 @@ public class GPTService {
         }
         String result;
         int currentTry = 1;
-        int sleepMins = 30;
+        int sleepSec = 30;
         do {
-            if (currentTry > ((GlobalSettings.getRequestTimeout() + sleepMins - 1) / sleepMins) * sleepMins) {
+            if (currentTry > ((GlobalSettings.getRequestTimeout() + sleepSec - 1) / sleepSec)) {
                 LOGGER.error("OpenAI Request timeout");
                 return null;
             }
@@ -284,7 +284,7 @@ public class GPTService {
                 return null;
             }
             try {
-                Thread.sleep(sleepMins * 1000);
+                Thread.sleep(sleepSec * 1000);
             } catch (InterruptedException e) {
                 LOGGER.error("Error during waiting for response: " + e.getMessage(), e);
                 Thread.currentThread().interrupt();
